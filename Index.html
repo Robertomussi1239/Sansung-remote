@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Controle Remoto Samsung PWA</title>
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#1a1a1a">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #222;
+            color: #eee;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .container {
+            width: 100%;
+            max-width: 400px;
+            background-color: #333;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+        }
+        h1 {
+            text-align: center;
+            color: #00bcd4;
+            margin-bottom: 20px;
+        }
+        .ip-input-group {
+            display: flex;
+            margin-bottom: 20px;
+        }
+        .ip-input-group input {
+            flex-grow: 1;
+            padding: 10px;
+            border: none;
+            border-radius: 5px 0 0 5px;
+            background-color: #444;
+            color: #eee;
+        }
+        .ip-input-group button {
+            padding: 10px 15px;
+            background-color: #00bcd4;
+            color: white;
+            border: none;
+            border-radius: 0 5px 5px 0;
+            cursor: pointer;
+        }
+        .controls {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        .controls button {
+            background-color: #555;
+            color: white;
+            padding: 15px 10px;
+            border: none;
+            border-radius: 5px;
+            font-size: 1.1em;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        .controls button:active {
+            background-color: #777;
+        }
+        .wide-button {
+            grid-column: span 3;
+        }
+        .status-message {
+            text-align: center;
+            margin-top: 15px;
+            color: #00bcd4;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Controle Samsung</h1>
+        <div class="ip-input-group">
+            <input type="text" id="tvIp" placeholder="IP da TV (ex: 192.168.1.100)">
+            <button id="connectBtn">Conectar</button>
+        </div>
+
+        <div class="controls">
+            <button onclick="sendCommand('KEY_POWER')">Ligar/Desligar</button>
+            <button onclick="sendCommand('KEY_MUTE')">Mute</button>
+            <button onclick="sendCommand('KEY_HOME')">Home</button>
+
+            <button onclick="sendCommand('KEY_VOLUP')">Vol +</button>
+            <button onclick="sendCommand('KEY_VOLDOWN')">Vol -</button>
+            <button onclick="sendCommand('KEY_CHUP')">Canal +</button>
+            <button onclick="sendCommand('KEY_CHDOWN')">Canal -</button>
+            <button onclick="sendCommand('KEY_ENTER')">OK</button>
+            <button onclick="sendCommand('KEY_RETURN')">Voltar</button>
+
+            <button onclick="sendCommand('KEY_MENU')">Menu</button>
+            <button onclick="sendCommand('KEY_INFO')">Info</button>
+            <button onclick="sendCommand('KEY_SOURCE')">Fonte</button>
+
+            <button onclick="sendCommand('KEY_1')">1</button>
+            <button onclick="sendCommand('KEY_2')">2</button>
+            <button onclick="sendCommand('KEY_3')">3</button>
+            <button onclick="sendCommand('KEY_4')">4</button>
+            <button onclick="sendCommand('KEY_5')">5</button>
+            <button onclick="sendCommand('KEY_6')">6</button>
+            <button onclick="sendCommand('KEY_7')">7</button>
+            <button onclick="sendCommand('KEY_8')">8</button>
+            <button onclick="sendCommand('KEY_9')">9</button>
+            <button onclick="sendCommand('KEY_0')" class="wide-button">0</button>
+        </div>
+        <p class="status-message" id="statusMessage"></p>
+    </div>
+
+    <script>
+        const tvIpInput = document.getElementById('tvIp');
+        const connectBtn = document.getElementById('connectBtn');
+        const statusMessage = document.getElementById('statusMessage');
+        let socket = null;
+        let tvAddress = localStorage.getItem('samsungTvIp') || ''; // Tenta carregar IP salvo
+
+        if (tvAddress) {
+            tvIpInput.value = tvAddress;
+        }
+
+        connectBtn.addEventListener('click', connectToTv);
+
+        function connectToTv() {
+            const ip = tvIpInput.value.trim();
+            if (!ip) {
+                statusMessage.textContent = 'Por favor, insira o IP da TV.';
+                return;
+            }
+            
+            localStorage.setItem('samsungTvIp', ip); // Salva o IP
+            tvAddress = ip;
+
+            statusMessage.textContent = 'Conectando... Verifique a tela da sua TV.';
+            
+            // Fecha conexão anterior se houver
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                socket.close();
+            }
+
+            // Usamos Base64 para codificar o nome do aplicativo
+            const appName = btoa('samsungTvRemote'); 
+            const url = `wss://${tvAddress}:8001/api/v2/channels/samsung.remote.control?name=${appName}`;
+
+            try {
+                socket = new WebSocket(url);
+
+                socket.onopen = () => {
+                    statusMessage.textContent = 'Conectado! Você pode enviar comandos.';
+                };
+
+                socket.onmessage = (event) => {
+                    const data = JSON.parse(event.data);
+                    console.log('Mensagem da TV:', data);
+                    if (data.event === 'ms.channel.connect') {
+                         // Isso indica que a conexão foi estabelecida ou confirmada
+                        statusMessage.textContent = 'Conectado e autorizado!';
+                    } else if (data.event === 'ms.channel.disconnect' || data.data?.code === 401) {
+                         // Se a TV pedir autenticação ou desconectar por não autorizado
+                        statusMessage.textContent = 'Conexão não autorizada ou perdida. Verifique a TV e clique em conectar novamente.';
+                        socket.close();
+                    }
+                };
+
+                socket.onerror = (error) => {
+                    console.error('Erro no WebSocket:', error);
+                    statusMessage.textContent = 'Erro de conexão. Verifique o IP e se a TV está ligada. Pode precisar de aprovação na TV.';
+                    if (socket) {
+                        socket.close();
+                    }
+                };
+
+                socket.onclose = () => {
+                    statusMessage.textContent = 'Desconectado.';
+                };
+
+            } catch (e) {
+                console.error('Erro ao tentar criar WebSocket:', e);
+                statusMessage.textContent = 'Erro de conexão. Verifique o IP e se a TV está ligada.';
+            }
+        }
+
+        function sendCommand(key) {
+            if (!socket || socket.readyState !== WebSocket.OPEN) {
+                statusMessage.textContent = 'Não conectado à TV. Clique em "Conectar".';
+                return;
+            }
+
+            const payload = {
+                method: 'ms.remote.control',
+                params: {
+                    Cmd: 'Click',
+                    DataOfCmd: key,
+                    Option: 'false',
+                    TypeOfRemote: 'SendRemoteKey'
+                }
+            };
+
+            try {
+                socket.send(JSON.stringify(payload));
+                statusMessage.textContent = `Comando "${key}" enviado.`;
+            } catch (e) {
+                statusMessage.textContent = 'Erro ao enviar comando.';
+                console.error('Erro ao enviar comando:', e);
+            }
+        }
+
+        // Service Worker Registration
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/samsung-remote-pwa/service-worker.js')
+                    .then(reg => console.log('Service Worker Registrado:', reg))
+                    .catch(err => console.error('Erro no Service Worker:', err));
+            });
+        }
+    </script>
+</body>
+</html>
